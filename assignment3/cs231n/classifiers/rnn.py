@@ -148,7 +148,30 @@ class CaptioningRNN:
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        initial_hidden, cache_proj = affine_forward(features, W_proj, b_proj)
+
+        word_embedding_out, cache_embed = word_embedding_forward(captions_in, W_embed)
+
+        if self.cell_type == "rnn":
+            out, cache_rnn = rnn_forward(word_embedding_out, initial_hidden, Wx, Wh, b)
+        else:
+            out, cache_lstm = lstm_forward(word_embedding_out, initial_hidden, Wx, Wh, b)
+
+        scores, cache_scores = temporal_affine_forward(out, W_vocab, b_vocab)
+
+        loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
+
+        dout, grads["W_vocab"], grads["b_vocab"] = temporal_affine_backward(dscores, cache_scores)
+
+        if self.cell_type == "rnn":
+            dx, dh0, grads["Wx"], grads["Wh"], grads["b"] = rnn_backward(dout, cache_rnn)
+        else:
+            dx, dh0, grads["Wx"], grads["Wh"], grads["b"] = lstm_backward(dout, cache_lstm)
+
+        grads["W_embed"] = word_embedding_backward(dx, cache_embed)
+
+        _, grads["W_proj"], grads["b_proj"] = affine_backward(dh0, cache_proj)
+
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -216,7 +239,37 @@ class CaptioningRNN:
         ###########################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        h, _ = affine_forward(features, W_proj, b_proj)
+
+        # Initialize LSTM cell state if using LSTM
+        c = np.zeros_like(h) if self.cell_type == 'lstm' else None
+
+        # Start token
+        word_index = self._start * np.ones((N, 1), dtype=np.int32)
+
+        for t in range(max_length):
+            # Embed the previous word
+            word_embed, _ = word_embedding_forward(word_index, W_embed)
+            word_embed = word_embed.reshape(N, -1)  # Reshape to (N, W)
+
+            # RNN or LSTM step
+            if self.cell_type == 'rnn':
+                h, _ = rnn_step_forward(word_embed, h, Wx, Wh, b)
+            else:  # LSTM
+                h, c, _ = lstm_step_forward(word_embed, h, c, Wx, Wh, b)
+
+            # Compute scores
+            scores, _ = affine_forward(h, W_vocab, b_vocab)
+
+            # Sample the highest scoring word
+            word_index = np.argmax(scores, axis=1)
+
+            # Reshape word_index to (N, 1) to maintain correct dimensions
+            word_index = word_index.reshape(N, 1)
+
+            # Store the generated word
+            captions[:, t] = word_index.flatten()
+
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
